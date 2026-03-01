@@ -1,46 +1,46 @@
-# sayCheese-repo
+# DayAdapt
 
-DayAdapt — App Summary
-Concept
-A weather-aware outfit recommendation app that learns your wardrobe, tracks what you wear, and suggests daily outfits tailored to the weather, your activity, and your lifestyle
+A weather-aware outfit recommendation app that learns your wardrobe and suggests daily outfits based on real-time conditions, your activity, and how you want to feel.
 
-Core Features
-1. Wardrobe Onboarding
-Users can build their wardrobe by uploading images of their clothing items in the following fixed categories:
-    a. Non-negotiables - tops, pants, shoes.
-    b. Optional - Thermals, Jackets, scarves, hats, gloves, facemask, umbrella
- and the vision LLM auto-detects and tags each item. Each clothing item is catalogued with these metrics: warmth, breathability, waterproof, occasion tag, color, and user comfort.
-2. Daily Outfit Recommendation
-The recommendation engine works in three layers:
+---
 
-Weather API fetches real-time data — temperature, feels-like, humidity, rain probability, UV index, wind
-Algorithmic pre-filter scores and shortlists items based on weather conditions and wear history, before the LLM even gets involved
-LLM reasoning gives the user around 2 options (based in the user's wardrobe inventory) for each fixed category and based on the weather - also from the optional category; and optionally generates a human-readable explanation of why each item was chosen
+## What It Does
 
-3. Outfit tracking (Wear Logging)
-The LLM recommends the user 2 items per category (top, pant, accessory) and another option saying 'other', the user selects the item they are wearing that day and if they choose to go with none of the recommendations they can select other which will take them to their wardrobe inventory, they then select the item they are wearing that day from there. this tracks lets the LLM not recommend the same outfit option the next day. The LLM will also give weekly/monthly wardrobe utilization insights - purpose is that user will be pointed to towards the items worn less frequently.
+**Wardrobe Onboarding** — Upload photos of your clothing. Claude Vision auto-tags each item with warmth, breathability, waterproofing, occasion, color, and comfort rating. Items are organized into essentials (tops, pants, shoes) and optionals (thermals, jackets, scarves, hats, gloves, etc.).
 
-4. Activity-Based Customisation
-Ask the user Users can tell the app what they're doing that day — gym, office, outdoor brunch, casual day at home — and recommendations adjust accordingly, matching occasion tags and prioritising breathability or formality as needed.
+**Daily Outfit Recommendation** — A three-layer engine: a Weather API pulls live temperature, feels-like, humidity, rain probability, UV index, and wind. An algorithmic scoring layer pre-filters and ranks items. Claude then reasons over that shortlist and returns two outfit options per category — with a plain-English explanation for each pick.
 
+**Wear Logging & Insights** — Users confirm what they're actually wearing each day (or pick from their wardrobe directly). This prevents repeat recommendations and feeds into weekly and monthly utilization reports, surfacing items that rarely get worn.
 
-Health & Lifestyle Angles
-These are the features that anchor the app firmly in the theme:
+**Activity & Mood Context** — Tell the app what you're doing — gym, office, outdoor brunch, rest day — and adjust for how you want to feel (confident, relaxed, energized). Recommendations shift accordingly across formality, breathability, and style tone.
 
-Thermal safety — warns users about afternoon temperature drops, wind chill, or heat risk and adjusts recommendations proactively
-UV protection — on high UV index days, prioritises long sleeves and protective layers, with a short health callout explaining why
-Activity-matched breathability — for physical activities, recommends moisture-wicking and breathable fabrics from the user's wardrobe
-Mood & enclothed cognition — a "how do you want to feel today?" selector (confident, relaxed, energised) subtly influences outfit tone and style
+**Health-Aware Nudges** — High UV days surface long-sleeve suggestions with a brief callout. Wind chill and afternoon temperature drops trigger layering warnings. Physical activities prioritize moisture-wicking fabrics from your actual wardrobe.
 
+---
 
-Technical Architecture
+## Custom-Built Logic
 
-Vision LLM (Claude) — wardrobe scanning, item tagging, outfit scan recognition
-Weather API — real-time and today's forecast (hourly)
-Algorithmic scoring layer — pre-filters and scores items before LLM call, making it faster and more reliable
-Reasoning LLM (also claude) — final outfit selection and explanation generation
-Wear log database — stores outfit history, powers tracking and insights
+- **Outfit Ranking Engine** — Claude reasons over your wardrobe against live weather data, not generic rules
+- **Daily Readiness Score** — 5-axis breakdown across Comfort, Activity Match, Weather Risk, Outfit Suitability, and Sustainability
+- **Sustainability Scoring** — Per-item eco score inferred from material type via Claude Vision
+- **Preference Learning Loop** — User feedback stored and injected into future Claude prompts
+- **Outfit Repetition Tracking** — `wornCount` per item in Firestore prevents stale recommendations
+- **Weather-Adaptive UI** — Canvas animations and gradient themes driven by live weather codes and temperature
 
+---
 
-What to Nail for the Demo
-The hackathon win comes down to three moments: scanning a clothing item and watching it get tagged instantly, getting a recommendation with a clear and intelligent explanation, and showing the weekly planner laid out against the forecast. If those three flows are smooth, the idea sells itself.
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Vision + Reasoning | Claude (Anthropic) |
+| Weather Data | Real-time Weather API from open-meteo |
+| Pre-filter Engine and filtering | Custom algorithmic scoring layer and LLM filter|
+| Database | Firebase / Firestore |
+| Backend | Node.js |
+
+---
+
+## Demo Flow
+
+Three moments that sell the idea: scanning a clothing item and watching it get tagged instantly → receiving a recommendation with a clear, reasoned explanation → seeing the weekly outfit planner laid out against the forecast.
