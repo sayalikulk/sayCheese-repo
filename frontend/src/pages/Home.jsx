@@ -402,7 +402,7 @@ export default function Home() {
         { key: "top", label: "Top", item: selectedOutfit.top || recommendation.outfit.top },
         { key: "bottom", label: "Bottom", item: selectedOutfit.bottom || recommendation.outfit.bottom },
         { key: "footwear", label: "Footwear", item: selectedOutfit.footwear || recommendation.outfit.footwear },
-      ].filter((s) => s.item)
+      ]
     : [];
   const visibleOutfitSlots = outfitSlots.filter((slot) => !clearedSlots[slot.key]);
 
@@ -599,20 +599,34 @@ export default function Home() {
                   {OCCASION_LABELS[occasion]} • {MOODS.find(m => m.value === mood)?.emoji} {MOODS.find(m => m.value === mood)?.label}
                 </p>
 
-                {/* Non-negotiable slots */}
+                {/* Non-negotiable slots: Top, Bottom, Footwear — always show all three */}
                 {visibleOutfitSlots.map((slot) => (
                   <div key={slot.key} className={`${cardInner} rounded-xl px-3 py-2`}>
                     <p className={`${textFaint} text-xs`}>{slot.label}</p>
-                    <p className={`${text} text-sm font-medium`}>{slot.item.name}</p>
-                    {slot.item.reason && (
-                      <p className={`${textFaint} text-xs italic mt-0.5`}>{slot.item.reason}</p>
+                    {slot.item ? (
+                      <>
+                        <p className={`${text} text-sm font-medium`}>{slot.item.name}</p>
+                        {slot.item.reason && (
+                          <p className={`${textFaint} text-xs italic mt-0.5`}>{slot.item.reason}</p>
+                        )}
+                        <button
+                          onClick={() => openWardrobePicker(slot.key)}
+                          className={`mt-2 text-xs px-2 py-1 rounded-lg ${isDark ? "bg-white/10 text-white" : "bg-black/10 text-gray-700"}`}
+                        >
+                          Choose other
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className={`${textMuted} text-sm`}>No recommendation for this slot</p>
+                        <button
+                          onClick={() => openWardrobePicker(slot.key)}
+                          className={`mt-2 text-xs px-2 py-1 rounded-lg ${isDark ? "bg-white/10 text-white" : "bg-black/10 text-gray-700"}`}
+                        >
+                          Choose from wardrobe
+                        </button>
+                      </>
                     )}
-                    <button
-                      onClick={() => openWardrobePicker(slot.key)}
-                      className={`mt-2 text-xs px-2 py-1 rounded-lg ${isDark ? "bg-white/10 text-white" : "bg-black/10 text-gray-700"}`}
-                    >
-                      Choose other
-                    </button>
                   </div>
                 ))}
 
@@ -631,23 +645,27 @@ export default function Home() {
                     </div>
                   ))}
 
-                {/* Optional items */}
-                {(optionalItems.length > 0 || recommendation?.outfit) && (
+                {/* Optional: jacket, scarf, etc. — always show when we have a recommendation */}
+                {recommendation?.outfit && (
                   <div>
-                    <p className={`${textFaint} text-xs mb-1 mt-2`}>Also consider</p>
-                    {optionalItems.map((item, i) => (
-                      <div key={i} className={`${cardInner} rounded-xl px-3 py-2 mb-1 border ${isDark ? "border-white/10" : "border-black/10"}`}>
-                        <p className={`${text} text-sm font-medium`}>{item.name}</p>
-                        {item.reason && (
-                          <p className={`${textFaint} text-xs italic mt-0.5`}>{item.reason}</p>
-                        )}
-                      </div>
-                    ))}
+                    <p className={`${textFaint} text-xs mb-1 mt-2`}>Jacket / optional layer</p>
+                    {optionalItems.length > 0 ? (
+                      optionalItems.map((item, i) => (
+                        <div key={i} className={`${cardInner} rounded-xl px-3 py-2 mb-1 border ${isDark ? "border-white/10" : "border-black/10"}`}>
+                          <p className={`${text} text-sm font-medium`}>{item.name}</p>
+                          {item.reason && (
+                            <p className={`${textFaint} text-xs italic mt-0.5`}>{item.reason}</p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className={`${textMuted} text-sm`}>None recommended — add one if you need an extra layer.</p>
+                    )}
                     <button
                       onClick={() => openWardrobePicker("optional")}
                       className={`mt-1 text-xs px-2 py-1 rounded-lg ${isDark ? "bg-white/10 text-white" : "bg-black/10 text-gray-700"}`}
                     >
-                      Choose optional from wardrobe
+                      {optionalItems.length > 0 ? "Change optional" : "Choose optional from wardrobe"}
                     </button>
                   </div>
                 )}
