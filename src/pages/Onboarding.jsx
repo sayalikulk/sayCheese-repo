@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
-import { db } from "../services/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { login, register } from "../services/auth";
+import { updateProfile } from "../services/user";
 
 const STEPS = ["welcome", "basic", "body", "preferences"];
 
 export default function Onboarding() {
-  const { saveUser, loadWardrobe } = useApp();
+  const { fetchUserAndWardrobe } = useApp();
+  const [mode, setMode] = useState("welcome"); // welcome | login | register
   const [step, setStep] = useState(0);
-  const [loginName, setLoginName] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [form, setForm] = useState({
     name: "",
+    email: "",
+    password: "",
     age: "",
     gender: "",
     height: "",
@@ -22,7 +26,7 @@ export default function Onboarding() {
     comfortPriority: "comfort",
   });
 
-  function update(key, value) {
+  function updateForm(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -36,37 +40,59 @@ export default function Onboarding() {
   }
 
   async function handleLogin() {
-    if (!loginName.trim()) return;
-    setLoginLoading(true);
-    setLoginError("");
+    if (!loginForm.email || !loginForm.password) return;
+    setAuthLoading(true);
+    setError("");
     try {
-      const q = query(collection(db, "users"), where("name", "==", loginName.trim()));
-      const snapshot = await getDocs(q);
-      if (snapshot.empty) {
-        setLoginError("No user found with that name. Please create an account.");
-      } else {
-        const userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-        localStorage.setItem("dayadapt_user", JSON.stringify(userData));
-        await loadWardrobe(userData.id);
-        window.location.reload();
-      }
+      await login({ email: loginForm.email, password: loginForm.password });
+      await fetchUserAndWardrobe();
     } catch (err) {
-      setLoginError("Something went wrong. Try again.");
+      setError(err.message || "Invalid email or password.");
     } finally {
-      setLoginLoading(false);
+      setAuthLoading(false);
     }
   }
 
-  async function finish() {
-    await saveUser({ ...form, preferences: { likedOutfits: [], dislikedOutfits: [] } });
+  async function handleRegisterFinish() {
+    setAuthLoading(true);
+    setError("");
+    try {
+      // Step 1 — create account
+      await register({
+        email: form.email,
+        password: form.password,
+        name: form.name,
+      });
+
+      // Step 2 — save profile details
+      await updateProfile({
+        preferences: {
+          default_activity: form.comfortPriority === "comfort" ? "casual" : "work",
+          mood_selector_enabled: true,
+          age: form.age,
+          gender: form.gender,
+          height: form.height,
+          weight: form.weight,
+          skinTone: form.skinTone,
+          stylePreference: form.stylePreference,
+          comfortPriority: form.comfortPriority,
+        },
+      });
+
+      await fetchUserAndWardrobe();
+    } catch (err) {
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-md">
 
-        {/* Progress — only show after welcome */}
-        {step > 0 && (
+        {/* Progress bar — only during registration steps */}
+        {mode === "register" && step > 0 && (
           <div className="flex gap-2 mb-8">
             {STEPS.map((_, i) => (
               <div
@@ -79,76 +105,123 @@ export default function Onboarding() {
           </div>
         )}
 
-        {/* Step 0 — Welcome + Login */}
-        {step === 0 && (
+        {/* ─── WELCOME SCREEN ─── */}
+        {mode === "welcome" && (
           <div className="text-center">
             <div className="text-7xl mb-6">🌤️</div>
             <h1 className="text-4xl font-bold text-white mb-3">DayAdapt</h1>
-            <p className="text-blue-200 text-lg mb-8">
+            <p className="text-blue-200 text-lg mb-10">
               Your weather-intelligent lifestyle companion.
             </p>
-
-            {/* Login Section */}
-            <div className="bg-white/10 border border-white/20 rounded-2xl p-5 mb-4 text-left">
-              <p className="text-white font-medium mb-3">Already have an account?</p>
-              <input
-                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60 mb-3"
-                placeholder="Enter your name"
-                value={loginName}
-                onChange={(e) => setLoginName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              />
-              {loginError && (
-                <p className="text-red-300 text-sm mb-3">{loginError}</p>
-              )}
+            <div className="space-y-3">
               <button
-                onClick={handleLogin}
-                disabled={loginLoading || !loginName.trim()}
-                className="w-full bg-white text-blue-900 font-bold py-3 rounded-xl disabled:opacity-40 transition-all"
+                onClick={() => setMode("login")}
+                className="w-full bg-white text-blue-900 font-bold py-4 rounded-2xl text-lg hover:bg-blue-50 transition-all"
               >
-                {loginLoading ? "Looking you up..." : "Sign In"}
+                Sign In
+              </button>
+              <button
+                onClick={() => { setMode("register"); setStep(1); }}
+                className="w-full bg-white/10 border border-white/20 text-white font-bold py-4 rounded-2xl text-lg hover:bg-white/20 transition-all"
+              >
+                Create Account
               </button>
             </div>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex-1 h-px bg-white/20" />
-              <span className="text-white/40 text-sm">or</span>
-              <div className="flex-1 h-px bg-white/20" />
-            </div>
-
-            <button
-              onClick={() => setStep(1)}
-              className="w-full bg-white/10 border border-white/20 text-white font-bold py-4 rounded-2xl text-lg hover:bg-white/20 transition-all"
-            >
-              Create New Account
-            </button>
           </div>
         )}
 
-        {/* Step 1 — Basic Info */}
-        {step === 1 && (
+        {/* ─── LOGIN SCREEN ─── */}
+        {mode === "login" && (
           <div>
-            <h2 className="text-2xl font-bold text-white mb-2">Tell us about you</h2>
-            <p className="text-blue-300 mb-6">We'll personalize your experience</p>
+            <button
+              onClick={() => { setMode("welcome"); setError(""); }}
+              className="text-white/40 text-sm mb-6 flex items-center gap-1 hover:text-white/70 transition-all"
+            >
+              ← Back
+            </button>
+            <h2 className="text-2xl font-bold text-white mb-2">Welcome back</h2>
+            <p className="text-blue-300 mb-6">Sign in to your account</p>
+            <div className="space-y-4">
+              <input
+                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
+                placeholder="Email"
+                type="email"
+                value={loginForm.email}
+                onChange={(e) => setLoginForm((p) => ({ ...p, email: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
+                placeholder="Password"
+                type="password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm((p) => ({ ...p, password: e.target.value }))}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+              />
+            </div>
+            {error && <p className="text-red-300 text-sm mt-3">{error}</p>}
+            <button
+              onClick={handleLogin}
+              disabled={authLoading || !loginForm.email || !loginForm.password}
+              className="w-full mt-6 bg-white text-blue-900 font-bold py-4 rounded-2xl disabled:opacity-40 transition-all"
+            >
+              {authLoading ? "Signing in..." : "Sign In"}
+            </button>
+            <p className="text-white/40 text-sm text-center mt-4">
+              Don't have an account?{" "}
+              <button
+                onClick={() => { setMode("register"); setStep(1); setError(""); }}
+                className="text-white underline"
+              >
+                Create one
+              </button>
+            </p>
+          </div>
+        )}
+
+        {/* ─── REGISTER STEP 1 — Basic Info ─── */}
+        {mode === "register" && step === 1 && (
+          <div>
+            <button
+              onClick={() => { setMode("welcome"); setError(""); }}
+              className="text-white/40 text-sm mb-6 flex items-center gap-1 hover:text-white/70 transition-all"
+            >
+              ← Back
+            </button>
+            <h2 className="text-2xl font-bold text-white mb-2">Create your account</h2>
+            <p className="text-blue-300 mb-6">Let's get you set up</p>
             <div className="space-y-4">
               <input
                 className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
                 placeholder="Your name"
                 value={form.name}
-                onChange={(e) => update("name", e.target.value)}
+                onChange={(e) => updateForm("name", e.target.value)}
+              />
+              <input
+                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
+                placeholder="Email"
+                type="email"
+                value={form.email}
+                onChange={(e) => updateForm("email", e.target.value)}
+              />
+              <input
+                className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
+                placeholder="Password"
+                type="password"
+                value={form.password}
+                onChange={(e) => updateForm("password", e.target.value)}
               />
               <input
                 className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
                 placeholder="Age"
                 type="number"
                 value={form.age}
-                onChange={(e) => update("age", e.target.value)}
+                onChange={(e) => updateForm("age", e.target.value)}
               />
               <div className="grid grid-cols-3 gap-3">
                 {["Male", "Female", "Other"].map((g) => (
                   <button
                     key={g}
-                    onClick={() => update("gender", g)}
+                    onClick={() => updateForm("gender", g)}
                     className={`py-3 rounded-xl border transition-all text-sm font-medium ${
                       form.gender === g
                         ? "bg-white text-blue-900 border-white"
@@ -160,19 +233,35 @@ export default function Onboarding() {
                 ))}
               </div>
             </div>
+            {error && <p className="text-red-300 text-sm mt-3">{error}</p>}
             <button
               onClick={() => setStep(2)}
-              disabled={!form.name || !form.age || !form.gender}
+              disabled={!form.name || !form.email || !form.password || !form.age || !form.gender}
               className="w-full mt-6 bg-white text-blue-900 font-bold py-4 rounded-2xl disabled:opacity-40 transition-all"
             >
               Continue
             </button>
+            <p className="text-white/40 text-sm text-center mt-4">
+              Already have an account?{" "}
+              <button
+                onClick={() => { setMode("login"); setError(""); }}
+                className="text-white underline"
+              >
+                Sign in
+              </button>
+            </p>
           </div>
         )}
 
-        {/* Step 2 — Body */}
-        {step === 2 && (
+        {/* ─── REGISTER STEP 2 — Body ─── */}
+        {mode === "register" && step === 2 && (
           <div>
+            <button
+              onClick={() => setStep(1)}
+              className="text-white/40 text-sm mb-6 flex items-center gap-1 hover:text-white/70 transition-all"
+            >
+              ← Back
+            </button>
             <h2 className="text-2xl font-bold text-white mb-2">Your profile</h2>
             <p className="text-blue-300 mb-6">Helps us suggest the right fit</p>
             <div className="space-y-4">
@@ -181,18 +270,18 @@ export default function Onboarding() {
                 placeholder="Height (cm)"
                 type="number"
                 value={form.height}
-                onChange={(e) => update("height", e.target.value)}
+                onChange={(e) => updateForm("height", e.target.value)}
               />
               <input
                 className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/60"
                 placeholder="Weight (kg)"
                 type="number"
                 value={form.weight}
-                onChange={(e) => update("weight", e.target.value)}
+                onChange={(e) => updateForm("weight", e.target.value)}
               />
               <div>
-                <p className="text-white/60 text-sm mb-2">Skin tone</p>
-                <div className="flex gap-3">
+                <p className="text-white/60 text-sm mb-3">Skin tone</p>
+                <div className="flex gap-4">
                   {[
                     { label: "Light", color: "#FDDBB4" },
                     { label: "Medium", color: "#D4A574" },
@@ -201,11 +290,14 @@ export default function Onboarding() {
                   ].map((tone) => (
                     <button
                       key={tone.label}
-                      onClick={() => update("skinTone", tone.label)}
+                      onClick={() => updateForm("skinTone", tone.label)}
+                      className="flex flex-col items-center gap-1"
                     >
                       <div
                         className={`w-10 h-10 rounded-full border-4 transition-all ${
-                          form.skinTone === tone.label ? "border-white scale-110" : "border-transparent"
+                          form.skinTone === tone.label
+                            ? "border-white scale-110"
+                            : "border-transparent"
                         }`}
                         style={{ backgroundColor: tone.color }}
                       />
@@ -224,9 +316,15 @@ export default function Onboarding() {
           </div>
         )}
 
-        {/* Step 3 — Preferences */}
-        {step === 3 && (
+        {/* ─── REGISTER STEP 3 — Style Preferences ─── */}
+        {mode === "register" && step === 3 && (
           <div>
+            <button
+              onClick={() => setStep(2)}
+              className="text-white/40 text-sm mb-6 flex items-center gap-1 hover:text-white/70 transition-all"
+            >
+              ← Back
+            </button>
             <h2 className="text-2xl font-bold text-white mb-2">Your style</h2>
             <p className="text-blue-300 mb-6">Select all that apply</p>
             <div className="grid grid-cols-2 gap-3 mb-6">
@@ -244,13 +342,13 @@ export default function Onboarding() {
                 </button>
               ))}
             </div>
-            <div>
-              <p className="text-white/60 text-sm mb-2">What matters most?</p>
+            <div className="mb-6">
+              <p className="text-white/60 text-sm mb-3">What matters most to you?</p>
               <div className="grid grid-cols-2 gap-3">
                 {["comfort", "style"].map((p) => (
                   <button
                     key={p}
-                    onClick={() => update("comfortPriority", p)}
+                    onClick={() => updateForm("comfortPriority", p)}
                     className={`py-3 rounded-xl border transition-all text-sm font-medium capitalize ${
                       form.comfortPriority === p
                         ? "bg-white text-blue-900 border-white"
@@ -262,15 +360,17 @@ export default function Onboarding() {
                 ))}
               </div>
             </div>
+            {error && <p className="text-red-300 text-sm mb-3">{error}</p>}
             <button
-              onClick={finish}
-              disabled={form.stylePreference.length === 0}
-              className="w-full mt-6 bg-white text-blue-900 font-bold py-4 rounded-2xl disabled:opacity-40 transition-all"
+              onClick={handleRegisterFinish}
+              disabled={authLoading || form.stylePreference.length === 0}
+              className="w-full bg-white text-blue-900 font-bold py-4 rounded-2xl disabled:opacity-40 transition-all"
             >
-              Let's Go 🚀
+              {authLoading ? "Setting up your account..." : "Let's Go 🚀"}
             </button>
           </div>
         )}
+
       </div>
     </div>
   );

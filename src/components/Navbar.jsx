@@ -13,11 +13,21 @@ export default function Navbar() {
   return (
     <nav className={`fixed bottom-0 left-0 right-0 ${base} backdrop-blur-md border-t z-50`}>
       <div className="flex justify-around items-center py-3 px-6 max-w-md mx-auto">
-        <Link to="/" className={`flex flex-col items-center gap-1 transition-all ${location.pathname === "/" ? active : inactive}`}>
+        <Link
+          to="/"
+          className={`flex flex-col items-center gap-1 transition-all ${
+            location.pathname === "/" ? active : inactive
+          }`}
+        >
           <Home size={22} />
           <span className="text-xs">Home</span>
         </Link>
-        <Link to="/profile" className={`flex flex-col items-center gap-1 transition-all ${location.pathname === "/profile" ? active : inactive}`}>
+        <Link
+          to="/profile"
+          className={`flex flex-col items-center gap-1 transition-all ${
+            location.pathname === "/profile" ? active : inactive
+          }`}
+        >
           <User size={22} />
           <span className="text-xs">Profile</span>
         </Link>

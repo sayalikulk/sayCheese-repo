@@ -1,42 +1,69 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { db } from "../services/firebase";
-import { doc, setDoc, collection, getDocs } from "firebase/firestore";
+import { getProfile } from "../services/user";
+import { getWardrobe } from "../services/wardrobe";
 import { getWeather, getUserLocation, reverseGeocode } from "../services/weather";
+import { isLoggedIn, logout } from "../services/auth";
 
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-    const [user, setUser] = useState(null);
-    const [weather, setWeather] = useState(null);
-    const [wardrobe, setWardrobe] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [location, setLocation] = useState(null);
-    const [locationName, setLocationName] = useState(null);
+  const [user, setUser] = useState(null);
+  const [weather, setWeather] = useState(null);
+  const [wardrobe, setWardrobe] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [location, setLocation] = useState(null);
+  const [locationName, setLocationName] = useState(null);
 
-    // Load user from localStorage
-    useEffect(() => {
-        const savedUser = localStorage.getItem("dayadapt_user");
-        if (savedUser) {
-            const parsed = JSON.parse(savedUser);
-            setUser(parsed);
-            loadWardrobe(parsed.id);
-        }
-        fetchWeather();
-    }, []);
+  useEffect(() => {
+    initialize();
+  }, []);
 
-    async function fetchWeather() {
-        try {
-            const loc = await getUserLocation();
-            setLocation(loc);
-            const [weatherData, name] = await Promise.all([
-                getWeather(loc.lat, loc.lon),
-                reverseGeocode(loc.lat, loc.lon),
-            ]);
-            setWeather(weatherData);
-            setLocationName(name);
+  async function initialize() {
+    try {
+      // Load weather regardless of auth state
+      await fetchWeather();
 
-        } catch (_err) {
-            // // 🔥 VERY HOT — Phoenix, Arizona
+      // If logged in, load user profile and wardrobe
+      if (isLoggedIn()) {
+        await fetchUserAndWardrobe();
+      }
+    } catch (err) {
+      console.error("Init error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchUserAndWardrobe() {
+    try {
+      const profile = await getProfile();
+      setUser(profile);
+      const wardrobeData = await getWardrobe();
+      setWardrobe(wardrobeData.items || []);
+    } catch (err) {
+      console.error("Failed to load user/wardrobe:", err);
+      // If profile fetch fails with 401, user is not authenticated
+      if (err.status === 401) {
+        logout();
+        setUser(null);
+      }
+    }
+  }
+
+  async function fetchWeather() {
+    try {
+      const loc = await getUserLocation();
+      setLocation(loc);
+      const fallbackLat = loc.lat;
+      const fallbackLon = loc.lon;
+      const [weatherData, name] = await Promise.all([
+        getWeather(fallbackLat, fallbackLon),
+        reverseGeocode(fallbackLat, fallbackLon),
+      ]);
+      setWeather(weatherData);
+      setLocationName(name);
+    } catch (_err) {
+      // // 🔥 VERY HOT — Phoenix, Arizona
             // const [fallbackLat, fallbackLon] = [-23.79844, 117.260189];
 
             // // ☀️ HOT & SUNNY — Dubai
@@ -60,83 +87,61 @@ export function AppProvider({ children }) {
             // // 🌫️ FOGGY — San Francisco
             // const [fallbackLat, fallbackLon] = [37.7749, -122.4194];
 
-            const [data, name] = await Promise.all([
-                getWeather(fallbackLat, fallbackLon),
-                reverseGeocode(fallbackLat, fallbackLon),
-            ]);
-            setWeather(data);
-            setLocationName(name);
-        } finally {
-            setLoading(false);
-        }
+      const [data, name] = await Promise.all([
+        getWeather(fallbackLat, fallbackLon),
+        reverseGeocode(fallbackLat, fallbackLon),
+      ]);
+      setWeather(data);
+      setLocationName(name);
     }
+  }
 
-    async function loadWardrobe(userId) {
-        try {
-            const snapshot = await getDocs(collection(db, "users", userId, "wardrobe"));
-            const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-            setWardrobe(items);
-        } catch (err) {
-            console.error("Error loading wardrobe:", err);
-        }
+  async function refreshWardrobe() {
+    try {
+      const wardrobeData = await getWardrobe();
+      setWardrobe(wardrobeData.items || []);
+    } catch (err) {
+      console.error("Failed to refresh wardrobe:", err);
     }
+  }
 
-    async function saveUser(userData) {
-        const userId = userData.id || `user_${Date.now()}`;
-        const newUser = { ...userData, id: userId };
-        await setDoc(doc(db, "users", userId), newUser);
-        localStorage.setItem("dayadapt_user", JSON.stringify(newUser));
-        setUser(newUser);
-        return newUser;
+  async function refreshUser() {
+    try {
+      const profile = await getProfile();
+      setUser(profile);
+    } catch (err) {
+      console.error("Failed to refresh user:", err);
     }
+  }
 
-    async function updateUserPrefs(prefs) {
-        if (!user) return;
-        const updated = { ...user, preferences: { ...user.preferences, ...prefs } };
-        await setDoc(doc(db, "users", user.id), updated);
-        localStorage.setItem("dayadapt_user", JSON.stringify(updated));
-        setUser(updated);
-    }
+  function handleLogout() {
+    logout();
+    setUser(null);
+    setWardrobe([]);
+  }
 
-    async function addWardrobeItem(item) {
-        if (!user) return;
-        const ref = doc(collection(db, "users", user.id, "wardrobe"));
-        const newItem = { ...item, id: ref.id, addedAt: new Date().toISOString(), wornCount: 0 };
-        await setDoc(ref, newItem);
-        setWardrobe((prev) => [...prev, newItem]);
-        return newItem;
-    }
-
-    async function incrementWornCount(itemId) {
-        if (!user) return;
-        const item = wardrobe.find((i) => i.id === itemId);
-        if (!item) return;
-        const updated = { ...item, wornCount: (item.wornCount || 0) + 1, lastWorn: new Date().toISOString() };
-        await setDoc(doc(db, "users", user.id, "wardrobe", itemId), updated);
-        setWardrobe((prev) => prev.map((i) => (i.id === itemId ? updated : i)));
-    }
-
-    return (
-        <AppContext.Provider
-            value={{
-                user,
-                weather,
-                wardrobe,
-                loading,
-                location,
-                locationName,
-                saveUser,
-                updateUserPrefs,
-                addWardrobeItem,
-                incrementWornCount,
-                loadWardrobe,
-            }}
-        >
-            {children}
-        </AppContext.Provider>
-    );
+  return (
+    <AppContext.Provider
+      value={{
+        user,
+        setUser,
+        weather,
+        wardrobe,
+        setWardrobe,
+        loading,
+        location,
+        locationName,
+        refreshWardrobe,
+        refreshUser,
+        handleLogout,
+        fetchUserAndWardrobe,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
 }
 
 export function useApp() {
-    return useContext(AppContext);
+  return useContext(AppContext);
 }

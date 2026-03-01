@@ -47,7 +47,7 @@ function AppRoutes() {
     return (
       <div className={`min-h-screen bg-gradient-to-br ${bgTheme} flex items-center justify-center transition-all duration-1000`}>
         <div className="text-center">
-          <div className="text-6xl mb-4">🌤️</div>
+          <div className="text-6xl mb-4 animate-bounce">🌤️</div>
           <p className="text-white text-xl font-semibold">DayAdapt</p>
           <p className="text-blue-300 text-sm mt-2">Reading your environment...</p>
         </div>
