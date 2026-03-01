@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
-import { getWeatherDescription } from "../services/weather";
+import { getWeatherDescription, locationDate } from "../services/weather";
 import { getRecommendation } from "../services/recommendations";
 import { logWear } from "../services/wearLog";
 import { useTheme } from "../App";
@@ -23,18 +23,12 @@ const OCCASION_LABELS = {
   outdoor_brunch: "Brunch",
 };
 
-const WARDROBE_PICK_KEY = "dayadapt_wardrobe_pick";
 const SELECTED_OUTFIT_KEY = "dayadapt_selected_outfit_v1";
-
-function todayIso() {
-  return new Date().toISOString().split("T")[0];
-}
 
 export default function Home() {
   const { user, weather, wardrobe, location, locationName } = useApp();
   const { isDark } = useTheme();
   const navigate = useNavigate();
-  const routerLocation = useLocation();
   const [searchParams] = useSearchParams();
   const [occasion, setOccasion] = useState("casual");
   const [mood, setMood] = useState("relaxed");
@@ -80,7 +74,7 @@ export default function Home() {
     try {
       const saved = JSON.parse(raw);
       if (
-        saved?.date === todayIso() &&
+        saved?.date === locationDate(weather?.current?.time, weather?.timezone) &&
         saved?.occasion === occasion &&
         saved?.mood === mood &&
         saved?.selectedOutfit
@@ -145,29 +139,13 @@ export default function Home() {
     navigate("/", { replace: true });
   }, [searchParams, wardrobe, navigate]);
 
-  useEffect(() => {
-    const raw = localStorage.getItem(WARDROBE_PICK_KEY);
-    if (!raw) return;
-
-    try {
-      const picked = JSON.parse(raw);
-      if (!picked?.slot || !picked?.item) return;
-      setSelectedOutfit((prev) => ({
-        ...prev,
-        [picked.slot]: picked.slot === "optional" ? [picked.item] : picked.item,
-      }));
-      setWearLogged(false);
-    } finally {
-      localStorage.removeItem(WARDROBE_PICK_KEY);
-    }
-  }, [routerLocation.key]);
 
   useEffect(() => {
     if (!selectedOutfitHydrated) return;
     localStorage.setItem(
       SELECTED_OUTFIT_KEY,
       JSON.stringify({
-        date: todayIso(),
+        date: locationDate(weather?.current?.time, weather?.timezone),
         occasion,
         mood,
         selectedOutfit,
@@ -187,6 +165,8 @@ export default function Home() {
         location: location
           ? { lat: location.lat, lon: location.lon }
           : undefined,
+        currentTime: weather?.current?.time,
+        timezone: weather?.timezone,
       });
       setRecommendation(rec);
     } catch (err) {
@@ -212,6 +192,8 @@ export default function Home() {
       await logWear({
         activity: occasion,
         item_ids: itemIds,
+        currentTime: weather?.current?.time,
+        timezone: weather?.timezone,
       });
       setWearLogged(true);
     } catch (err) {
@@ -224,8 +206,10 @@ export default function Home() {
   const weatherDesc = current ? getWeatherDescription(current.weather_code) : null;
 
   const greeting = (() => {
-    const timezone = weather?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const hour = new Date(new Date().toLocaleString("en-US", { timeZone: timezone })).getHours();
+    // current.time is e.g. "2026-03-01T14:30" — already local to the location
+    const hour = weather?.current?.time
+      ? new Date(weather.current.time).getHours()
+      : new Date(new Date().toLocaleString("en-US", { timeZone: weather?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone })).getHours();
     if (hour >= 5 && hour < 12) return "Good morning";
     if (hour >= 12 && hour < 17) return "Good afternoon";
     if (hour >= 17 && hour < 21) return "Good evening";
@@ -360,7 +344,9 @@ export default function Home() {
           <h1 className={`${text} text-2xl font-bold`}>{user?.name} 👋</h1>
         </div>
         <p className={`${textFaint} text-xs text-right mt-1`}>
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+          {weather?.current?.time
+            ? new Date(weather.current.time).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
+            : new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: weather?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone })}
         </p>
       </div>
 

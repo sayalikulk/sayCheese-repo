@@ -4,8 +4,6 @@ import { useApp } from "../context/AppContext";
 import { useTheme } from "../App";
 import { addWardrobeItem, deleteWardrobeItem, scanItem } from "../services/wardrobe";
 
-const WARDROBE_PICK_KEY = "dayadapt_wardrobe_pick";
-
 export default function Wardrobe() {
   const { wardrobe, refreshWardrobe } = useApp();
   const { isDark } = useTheme();
@@ -117,18 +115,10 @@ export default function Wardrobe() {
 
   function handlePick(item) {
     const pickedItemId = item.item_id || item.id;
-    localStorage.setItem(
-      WARDROBE_PICK_KEY,
-      JSON.stringify({ slot: pickSlot, item, pickedAt: Date.now() })
-    );
     navigate(`${returnTo}?pickedSlot=${encodeURIComponent(pickSlot)}&pickedItemId=${encodeURIComponent(pickedItemId)}`);
   }
 
   function handlePickNone() {
-    localStorage.setItem(
-      WARDROBE_PICK_KEY,
-      JSON.stringify({ slot: pickSlot, item: null, pickedAt: Date.now(), none: true })
-    );
     navigate(`${returnTo}?pickedSlot=${encodeURIComponent(pickSlot)}&pickedItemId=none`);
   }
 

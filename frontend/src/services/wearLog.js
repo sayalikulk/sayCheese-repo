@@ -1,8 +1,9 @@
 import { api } from "./api";
+import { locationDate } from "./weather";
 
-export async function logWear({ date, activity, item_ids }) {
+export async function logWear({ date, activity, item_ids, currentTime, timezone }) {
   return await api.post("/wear-log", {
-    date: date || new Date().toISOString().split("T")[0],
+    date: date || locationDate(currentTime, timezone),
     activity,
     item_ids,
   });

@@ -1,8 +1,9 @@
 import { api } from "./api";
+import { locationDate } from "./weather";
 
-export async function getRecommendation({ date, activity, mood, location }) {
+export async function getRecommendation({ date, activity, mood, location, currentTime, timezone }) {
   return await api.post("/recommendations", {
-    date: date || new Date().toISOString().split("T")[0],
+    date: date || locationDate(currentTime, timezone),
     activity,
     mood,
     location,

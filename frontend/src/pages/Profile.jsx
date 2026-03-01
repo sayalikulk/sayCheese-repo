@@ -47,7 +47,7 @@ export default function Profile() {
         <h1 className={`${text} text-2xl font-bold`}>Profile</h1>
         <button
           onClick={handleLogout}
-          className={`${textFaint} text-sm hover:${text} transition-all`}
+          className="text-white/40 text-sm hover:text-white transition-all"
         >
           Sign out
         </button>

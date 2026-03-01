@@ -48,6 +48,37 @@ export function getUserLocation() {
   });
 }
 
+/**
+ * Returns today's date as YYYY-MM-DD using the location's current time.
+ * Prefers weather.current.time (e.g. "2026-03-01T14:30") which is already
+ * expressed in local time at the location. Falls back to IANA timezone string,
+ * then device local time.
+ */
+export function locationDate(currentTime, timezone) {
+  // Primary: currentTime from Open-Meteo e.g. "2026-03-01T14:30"
+  if (currentTime && typeof currentTime === "string" && currentTime.includes("T")) {
+    return currentTime.split("T")[0];
+  }
+  // Secondary: IANA timezone string e.g. "America/New_York"
+  if (timezone && typeof timezone === "string" && !timezone.includes("T")) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date());
+      const get = (type) => parts.find((p) => p.type === type).value;
+      return `${get("year")}-${get("month")}-${get("day")}`;
+    } catch {
+      // fall through to device local
+    }
+  }
+  // Final fallback: device local date
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export async function reverseGeocode(lat, lon) {
   try {
     const res = await fetch(

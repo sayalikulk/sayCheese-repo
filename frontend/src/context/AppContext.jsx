@@ -63,29 +63,29 @@ export function AppProvider({ children }) {
       setWeather(weatherData);
       setLocationName(name);
     } catch (_err) {
-      // // 🔥 VERY HOT — Phoenix, Arizona
-            // const [fallbackLat, fallbackLon] = [-23.79844, 117.260189];
+      // // 🔥 VERY HOT
+      // const [fallbackLat, fallbackLon] = [-23.79844, 117.260189];
 
-            // // ☀️ HOT & SUNNY — Dubai
-            // const [fallbackLat, fallbackLon] = [25.2048, 55.2708];
+      // // ☀️ HOT & SUNNY
+      // const [fallbackLat, fallbackLon] = [25.2048, 55.2708];
 
-            // // 🌤️ PLEASANT — London
-            // const [fallbackLat, fallbackLon] = [-3.3305, 8.6952];
+      // // 🌤️ PLEASANT
+      // const [fallbackLat, fallbackLon] = [-3.3305, 8.6952];
 
-            // // ❄️ COLD & CLEAR — Reykjavik
-            // const [fallbackLat, fallbackLon] = [64.1466, -21.9426];
+      // // ❄️ COLD & CLEAR
+      // const [fallbackLat, fallbackLon] = [64.1466, -21.9426];
 
-            // // ❄️ SNOWY — Anchorage
-            // const [fallbackLat, fallbackLon] = [56.652232, -131.60332];
+      // ❄️ SNOWY
+      const [fallbackLat, fallbackLon] = [52.354535, 56.161962];
 
-            // 🌧️ RAINY — Seattle
-            const [fallbackLat, fallbackLon] = [-3.794748, 24.154905];
+      // // 🌧️ RAINY
+      // const [fallbackLat, fallbackLon] = [-3.794748, 24.154905];
 
-            // // ⛈️ THUNDERSTORM — Miami
-            // const [fallbackLat, fallbackLon] = [25.7617, -80.1918];
+      // // ⛈️ THUNDERSTORM
+      // const [fallbackLat, fallbackLon] = [25.7617, -80.1918];
 
-            // // 🌫️ FOGGY — San Francisco
-            // const [fallbackLat, fallbackLon] = [37.7749, -122.4194];
+      // // 🌫️ FOGGY
+      // const [fallbackLat, fallbackLon] = [37.7749, -122.4194];
 
       const [data, name] = await Promise.all([
         getWeather(fallbackLat, fallbackLon),
@@ -93,6 +93,7 @@ export function AppProvider({ children }) {
       ]);
       setWeather(data);
       setLocationName(name);
+      setLocation({ lat: fallbackLat, lon: fallbackLon });
     }
   }
 

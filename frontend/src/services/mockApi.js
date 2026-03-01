@@ -380,9 +380,11 @@ export async function mockRequest(path, options = {}) {
         description: "Detected from photo (mock).",
         category: "top",
         image_url: "",
+        confidence: 0.91,
         tags: {
           color: "blue",
           warmth: 2,
+          breathability: 3,
           waterproof: false,
           sustainabilityScore: 3,
           user_comfort: 4,

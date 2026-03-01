@@ -6,7 +6,7 @@ export default function Navbar() {
   const location = useLocation();
   const { isDark } = useTheme();
 
-  const base = isDark ? "bg-white/10 border-white/20" : "bg-black/10 border-black/20";
+  const base = isDark ? "bg-white/10 border-white/20" : "bg-white/60 border-black/10";
   const active = isDark ? "text-white" : "text-gray-900";
   const inactive = isDark ? "text-white/40" : "text-gray-400";
 
