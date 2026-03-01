@@ -1,8 +1,8 @@
 /**
  * Database pre-filter for recommendations (Stage 1).
- * Uses: category, tags.occasion vs activity, last_worn_date, and (when weather provided)
- * tags.warmth/breathability and tags.waterproof for warmth/rain filtering.
- * See docs/weather-and-data-sources.md §3.
+ * Uses: category, tags.occasion vs activity (preference sort), tags.waterproof (preference sort when rainy),
+ * and last_worn_date (preference sort). All affect ordering only—no items are removed.
+ * Warmth filtering removed (LLM handles it). See docs/weather-and-data-sources.md §3.
  */
 
 const { getAdmin } = require('../config/firebase');
@@ -15,10 +15,7 @@ const DEBUG =
   process.env.DEBUG_RECOMMENDATIONS === '1' ||
   process.env.NODE_ENV !== 'production';
 
-const COLD_THRESHOLD_C = 10;
-const HOT_THRESHOLD_C = 25;
 const RAIN_PROBABILITY_THRESHOLD = 0.5;
-const RAIN_CATEGORIES = new Set(['jacket', 'footwear']);
 
 const NON_NEGOTIABLE = ['top', 'bottom', 'footwear'];
 const OPTIONAL_CATEGORIES = [
@@ -91,14 +88,6 @@ function getRecencyCutoff(todayISO, excludeLastNDays) {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Exclude items worn within the last N days; sort by last_worn_date ascending
- * (null/oldest first) so less recently worn are preferred.
- * @param {Array<{ id: string, data: object }>} docs
- * @param {string} cutoffDate - YYYY-MM-DD; exclude if lastWornDate >= cutoff
- * @param {number} limit
- * @returns {Array<{ id: string, data: object }>}
- */
 function toDateStr(val) {
   if (val == null || val === '') return null;
   if (typeof val === 'string') return val.slice(0, 10);
@@ -110,128 +99,77 @@ function toDateStr(val) {
   }
 }
 
-function applyRecencyAndSort(docs, cutoffDate, limit) {
-  const filtered = docs.filter((d) => {
-    const dateStr = toDateStr(d.data.lastWornDate);
-    if (dateStr == null) return true;
-    return dateStr < cutoffDate;
-  });
-  filtered.sort((a, b) => {
-    const da = a.data.lastWornDate;
-    const db = b.data.lastWornDate;
+/**
+ * Check if doc matches occasion (tags.occasion overlaps with allowed).
+ * @param {{ data: object }} doc
+ * @param {string[] | null} allowedOccasions - null = no filter, match all
+ * @returns {boolean}
+ */
+function matchesOccasion(doc, allowedOccasions) {
+  if (!allowedOccasions || allowedOccasions.length === 0) return true;
+  const occ = doc.data.tags?.occasion;
+  if (!Array.isArray(occ)) return false;
+  const set = new Set(occ.map((o) => String(o).toLowerCase()));
+  return allowedOccasions.some((a) => set.has(a.toLowerCase()));
+}
+
+/**
+ * When rainy, should this item be preferred (waterproof)? Applies to footwear, and jacket/umbrella in optional.
+ * @param {{ data: object }} doc
+ * @param {string} slotCategory - top | bottom | footwear | optional
+ * @param {{ is_rainy_or_snowy?: boolean, rain_probability?: number } | null} weather
+ * @returns {boolean}
+ */
+function preferWaterproof(doc, slotCategory, weather) {
+  if (!weather) return false;
+  const isRainy = weather.is_rainy_or_snowy === true || (Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD);
+  if (!isRainy) return false;
+
+  if (slotCategory === 'footwear') return doc.data.tags?.waterproof === true;
+  if (slotCategory === 'optional') {
+    const cat = doc.data.category;
+    if (cat === 'jacket' || cat === 'umbrella') return doc.data.tags?.waterproof === true;
+  }
+  return false;
+}
+
+/**
+ * Sort docs by occasion, rain (when rainy), and recency preference (no items removed).
+ * Occasion: items matching occasion come first.
+ * Rain: when rainy, waterproof items first for footwear and jacket/umbrella.
+ * Recency: less recently worn items come first. All items stay in the list.
+ * @param {Array<{ id: string, data: object }>} docs
+ * @param {string[] | null} allowedOccasions - null = no occasion preference
+ * @param {number} limit
+ * @param {object} [opts] - { weather, slotCategory }
+ * @returns {Array<{ id: string, data: object }>}
+ */
+function sortByOccasionRecencyAndRainPreference(docs, allowedOccasions, limit, opts = {}) {
+  const { weather, slotCategory } = opts;
+  const sorted = [...docs].sort((a, b) => {
+    // Primary: occasion match (matching items first)
+    const matchA = matchesOccasion(a, allowedOccasions) ? 1 : 0;
+    const matchB = matchesOccasion(b, allowedOccasions) ? 1 : 0;
+    if (matchB !== matchA) return matchB - matchA;
+
+    // Secondary: rain preference when rainy (waterproof first for footwear, jacket, umbrella)
+    const rainA = preferWaterproof(a, slotCategory, weather) ? 1 : 0;
+    const rainB = preferWaterproof(b, slotCategory, weather) ? 1 : 0;
+    if (rainB !== rainA) return rainB - rainA;
+
+    // Tertiary: recency (less recently worn first; null = never worn = best)
+    const da = toDateStr(a.data.lastWornDate);
+    const db = toDateStr(b.data.lastWornDate);
     if (da == null && db == null) return 0;
     if (da == null) return -1;
     if (db == null) return 1;
-    const sa = toDateStr(da) ?? '';
-    const sb = toDateStr(db) ?? '';
-    return sa.localeCompare(sb);
+    return da.localeCompare(db);
   });
-  return filtered.slice(0, limit);
+  return sorted.slice(0, limit);
 }
 
 /**
- * Filter docs by occasion: keep only if tags.occasion overlaps with allowed.
- * @param {Array<{ id: string, data: object }>} docs
- * @param {string[] | null} allowedOccasions - null = no filter
- * @returns {Array<{ id: string, data: object }>}
- */
-function filterByOccasion(docs, allowedOccasions) {
-  if (!allowedOccasions || allowedOccasions.length === 0) return docs;
-  return docs.filter((d) => {
-    const occ = d.data.tags?.occasion;
-    if (!Array.isArray(occ)) return false;
-    const set = new Set(occ.map((o) => String(o).toLowerCase()));
-    return allowedOccasions.some((a) => set.has(a.toLowerCase()));
-  });
-}
-
-/**
- * Filter by warmth band using feels_like (weather). Cold → warmth >= 3; Hot → warmth <= 2 and breathability >= 3; Mild → no filter.
- * If filter yields 0 items, returns original list (mandatory slots must get next-best option).
- * @param {Array<{ id: string, data: object }>} docs
- * @param {{ feels_like_c: number } | null} weather - if null, no filter
- * @returns {{ filtered: Array<{ id: string, data: object }>, dropped: boolean }} dropped true when we fell back to full list
- */
-function filterByWarmth(docs, weather) {
-  if (!weather || weather.feels_like_c == null) return { filtered: docs, dropped: false };
-  const feelsLike = Number(weather.feels_like_c);
-  if (Number.isNaN(feelsLike)) return { filtered: docs, dropped: false };
-
-  const filtered = docs.filter((d) => {
-    const tags = d.data.tags || {};
-    const warmth = Number(tags.warmth);
-    const breathability = Number(tags.breathability);
-    const w = Number.isNaN(warmth) ? 3 : Math.min(5, Math.max(1, Math.round(warmth)));
-    const b = Number.isNaN(breathability) ? 3 : Math.min(5, Math.max(1, Math.round(breathability)));
-
-    if (feelsLike < COLD_THRESHOLD_C) return w >= 3;
-    if (feelsLike > HOT_THRESHOLD_C) return w <= 2 && b >= 3;
-    return true;
-  });
-
-  if (filtered.length === 0) return { filtered: docs, dropped: true };
-  return { filtered, dropped: false };
-}
-
-/**
- * Sort docs by next-best for weather: cold → warmest first; hot → most breathable / lightest first.
- * Used when we had to drop the warmth filter so the best available option is recommended.
- * @param {Array<{ id: string, data: object }>} docs
- * @param {{ feels_like_c: number } | null} weather
- * @returns {Array<{ id: string, data: object }>}
- */
-function sortByNextBestWeather(docs, weather) {
-  if (!weather || weather.feels_like_c == null || docs.length === 0) return docs;
-  const feelsLike = Number(weather.feels_like_c);
-  if (Number.isNaN(feelsLike)) return docs;
-
-  return [...docs].sort((a, b) => {
-    const tw = (d) => (Number.isNaN(Number(d.data.tags?.warmth)) ? 3 : Math.min(5, Math.max(1, Math.round(Number(d.data.tags?.warmth)))));
-    const tb = (d) => (Number.isNaN(Number(d.data.tags?.breathability)) ? 3 : Math.min(5, Math.max(1, Math.round(Number(d.data.tags?.breathability)))));
-
-    if (feelsLike < COLD_THRESHOLD_C) {
-      return tw(b) - tw(a);
-    }
-    if (feelsLike > HOT_THRESHOLD_C) {
-      const bA = tb(a);
-      const bB = tb(b);
-      if (bB !== bA) return bB - bA;
-      return tw(a) - tw(b);
-    }
-    return 0;
-  });
-}
-
-/**
- * When rain/snow is significant, for jacket and footwear require waterproof; if 0 items, return original list.
- * @param {Array<{ id: string, data: object }>} docs
- * @param {string} category - single category (top, bottom, footwear) or 'optional' for mixed list
- * @param {{ is_rainy_or_snowy?: boolean, rain_probability?: number } | null} weather
- * @returns {Array<{ id: string, data: object }>}
- */
-function filterByRain(docs, category, weather) {
-  if (!weather) return docs;
-  const isRainy = weather.is_rainy_or_snowy === true || (Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD);
-  if (!isRainy) return docs;
-
-  if (category === 'optional') {
-    const rainOptionalCategories = new Set(['jacket', 'umbrella']);
-    const filtered = docs.filter((d) => {
-      const cat = d.data.category;
-      if (!rainOptionalCategories.has(cat)) return true;
-      return d.data.tags?.waterproof === true;
-    });
-    return filtered.length > 0 ? filtered : docs;
-  }
-
-  if (!RAIN_CATEGORIES.has(category)) return docs;
-  const waterproofOnly = docs.filter((d) => d.data.tags?.waterproof === true);
-  return waterproofOnly.length > 0 ? waterproofOnly : docs;
-}
-
-/**
- * Fetch one non-negotiable slot: userId + category, then apply occasion, warmth, rain, recency.
- * If occasion filter yields 0 items, drop it; if rain filter yields 0 for jacket/footwear, drop it.
+ * Fetch one non-negotiable slot: userId + category, then sort by occasion+rain+recency preference (no items removed).
  * @param {string} userId
  * @param {string} category - top | bottom | footwear
  * @param {object} opts - { occasionFilter, cutoffDate, limitPerSlot, weather }
@@ -248,49 +186,21 @@ async function getSlotCandidates(userId, category, opts) {
 
   if (DEBUG) console.log(`[prefilter] slot=${category} DB query: userId + category=${category} → ${docs.length} docs`);
 
-  let filtered = filterByOccasion(docs, occasionFilter);
-  const occasionDropped = filtered.length === 0 && occasionFilter != null;
-  if (occasionDropped) filtered = docs;
+  // Occasion, rain, recency: preference-based sort only (no items removed).
+  const sorted = sortByOccasionRecencyAndRainPreference(docs, occasionFilter, limitPerSlot, {
+    weather,
+    slotCategory: category,
+  });
   if (DEBUG) {
-    const occLabel = occasionFilter ? `allowed [${occasionFilter.join(', ')}]` : 'none';
+    const occLabel = occasionFilter ? `prefer [${occasionFilter.join(', ')}]` : 'none';
+    const rainLabel = weather && (weather.is_rainy_or_snowy === true || Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD)
+      ? 'prefer waterproof'
+      : 'none';
     console.log(
-      `[prefilter] slot=${category} occasion: ${occLabel} → ${occasionDropped ? '0 matches, using all' : `${docs.length} → ${filtered.length}`}`
+      `[prefilter] slot=${category} occasion+rain+recency: ${occLabel}, rain=${rainLabel} (preference sort, no removal) → ${docs.length} → ${sorted.length}`
     );
   }
-
-  const beforeWarmth = filtered.length;
-  const warmthResult = filterByWarmth(filtered, weather);
-  filtered = warmthResult.filtered;
-  if (warmthResult.dropped) filtered = sortByNextBestWeather(filtered, weather);
-  if (DEBUG && weather && weather.feels_like_c != null) {
-    const fl = Number(weather.feels_like_c);
-    let cond = 'mild (no filter)';
-    if (fl < COLD_THRESHOLD_C) cond = `cold → warmth>=3`;
-    else if (fl > HOT_THRESHOLD_C) cond = `hot → warmth<=2 & breathability>=3`;
-    console.log(
-      `[prefilter] slot=${category} warmth: feels_like=${fl}°C → ${cond} → ${beforeWarmth} → ${filtered.length}${warmthResult.dropped ? ' (dropped filter, next-best order)' : ''}`
-    );
-  }
-
-  const beforeRain = filtered.length;
-  filtered = filterByRain(filtered, category, weather);
-  if (DEBUG && weather) {
-    const isRainy =
-      weather.is_rainy_or_snowy === true ||
-      (Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD);
-    if (isRainy)
-      console.log(
-        `[prefilter] slot=${category} rain: require waterproof for ${RAIN_CATEGORIES.has(category) ? category : 'n/a'} → ${beforeRain} → ${filtered.length}`
-      );
-  }
-
-  const beforeRecency = filtered.length;
-  const withRecency = applyRecencyAndSort(filtered, cutoffDate, limitPerSlot);
-  if (DEBUG)
-    console.log(
-      `[prefilter] slot=${category} recency: cutoff=${cutoffDate}, limit=${limitPerSlot} → ${beforeRecency} → ${withRecency.length}`
-    );
-  return mapDocsToApiItems(withRecency, category);
+  return mapDocsToApiItems(sorted, category);
 }
 
 async function fetchDocsByCategory(userId, category) {
@@ -341,7 +251,7 @@ function mapDocsToApiItems(docs, slotLabel) {
 }
 
 /**
- * Fetch optional categories (thermal, jacket, etc.) in one query, then filter by occasion, warmth, rain (jacket), recency.
+ * Fetch optional categories (thermal, jacket, etc.) in one query, then sort by occasion+rain+recency preference (no items removed).
  * @param {string} userId
  * @param {object} opts - { occasionFilter, cutoffDate, limitPerSlot, weather }
  * @returns {Promise<Array<object>>} API-shaped items for LLM
@@ -357,46 +267,21 @@ async function getOptionalCandidates(userId, opts) {
 
   if (DEBUG) console.log(`[prefilter] slot=optional DB query: userId + category in [${OPTIONAL_CATEGORIES.join(', ')}] → ${docs.length} docs`);
 
-  let filtered = filterByOccasion(docs, occasionFilter);
-  if (filtered.length === 0 && occasionFilter != null) filtered = docs;
+  // Occasion, rain, recency: preference-based sort only (no items removed).
+  const sorted = sortByOccasionRecencyAndRainPreference(docs, occasionFilter, limitPerSlot, {
+    weather,
+    slotCategory: 'optional',
+  });
   if (DEBUG) {
-    const occLabel = occasionFilter ? `allowed [${occasionFilter.join(', ')}]` : 'none';
-    console.log(`[prefilter] slot=optional occasion: ${occLabel} → ${docs.length} → ${filtered.length}`);
-  }
-
-  const beforeWarmth = filtered.length;
-  const warmthResult = filterByWarmth(filtered, weather);
-  filtered = warmthResult.filtered;
-  if (warmthResult.dropped) filtered = sortByNextBestWeather(filtered, weather);
-  if (DEBUG && weather && weather.feels_like_c != null) {
-    const fl = Number(weather.feels_like_c);
-    let cond = 'mild (no filter)';
-    if (fl < COLD_THRESHOLD_C) cond = `cold → warmth>=3`;
-    else if (fl > HOT_THRESHOLD_C) cond = `hot → warmth<=2 & breathability>=3`;
+    const occLabel = occasionFilter ? `prefer [${occasionFilter.join(', ')}]` : 'none';
+    const rainLabel = weather && (weather.is_rainy_or_snowy === true || Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD)
+      ? 'prefer waterproof (jacket/umbrella)'
+      : 'none';
     console.log(
-      `[prefilter] slot=optional warmth: feels_like=${fl}°C → ${cond} → ${beforeWarmth} → ${filtered.length}${warmthResult.dropped ? ' (dropped filter, next-best order)' : ''}`
+      `[prefilter] slot=optional occasion+rain+recency: ${occLabel}, rain=${rainLabel} (preference sort, no removal) → ${docs.length} → ${sorted.length}`
     );
   }
-
-  const beforeRain = filtered.length;
-  filtered = filterByRain(filtered, 'optional', weather);
-  if (DEBUG && weather) {
-    const isRainy =
-      weather.is_rainy_or_snowy === true ||
-      (Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD);
-    if (isRainy)
-      console.log(
-        `[prefilter] slot=optional rain: require waterproof for jacket/umbrella → ${beforeRain} → ${filtered.length}`
-      );
-  }
-
-  const beforeRecency = filtered.length;
-  const withRecency = applyRecencyAndSort(filtered, cutoffDate, limitPerSlot);
-  if (DEBUG)
-    console.log(
-      `[prefilter] slot=optional recency: cutoff=${cutoffDate}, limit=${limitPerSlot} → ${beforeRecency} → ${withRecency.length}`
-    );
-  return mapDocsToApiItems(withRecency, 'optional');
+  return mapDocsToApiItems(sorted, 'optional');
 }
 
 /**
@@ -407,7 +292,7 @@ async function getOptionalCandidates(userId, opts) {
  * @param {string} [options.date] - ISO date YYYY-MM-DD; default today
  * @param {number} [options.limitPerSlot] - max items per slot; default 15
  * @param {number} [options.excludeLastNDays] - exclude items worn in last N days; default 2
- * @param {object} [options.weather] - from weather service; enables warmth + rain pre-filter
+ * @param {object} [options.weather] - from weather service; enables rain pre-filter
  * @returns {Promise<{ top: object[], bottom: object[], footwear: object[], optional: object[] }>}
  */
 async function getPreFilteredCandidates(userId, options = {}) {
@@ -428,28 +313,21 @@ async function getPreFilteredCandidates(userId, options = {}) {
 
   if (DEBUG) {
     const filtersApplied = [
-      `recency: cutoff=${cutoffDate} (exclude items worn on or after), limit_per_slot=${limitPerSlot}`,
+      `occasion+rain+recency: preference sort only (no removal), limit_per_slot=${limitPerSlot}`,
       occasionFilter
-        ? `occasion: activity → allowed tags [${occasionFilter.join(', ')}]`
+        ? `occasion: prefer tags [${occasionFilter.join(', ')}]`
         : 'occasion: none (any)',
     ];
     if (weather) {
-      const feelsLike = weather.feels_like_c;
-      let warmthCond = 'none (mild)';
-      if (feelsLike != null && !Number.isNaN(Number(feelsLike))) {
-        if (Number(feelsLike) < COLD_THRESHOLD_C) warmthCond = `cold (feels_like ${feelsLike}°C) → require warmth>=3`;
-        else if (Number(feelsLike) > HOT_THRESHOLD_C) warmthCond = `hot (feels_like ${feelsLike}°C) → require warmth<=2 and breathability>=3`;
-      }
       const isRainy =
         weather.is_rainy_or_snowy === true ||
         (Number(weather.rain_probability) >= RAIN_PROBABILITY_THRESHOLD);
       const rainCond = isRainy
-        ? 'rain/snow → require waterproof for jacket & footwear (and jacket/umbrella in optional)'
-        : 'no rain filter';
-      filtersApplied.push(`warmth: ${warmthCond}`);
-      filtersApplied.push(`rain: ${rainCond}`);
+        ? 'rain: prefer waterproof for footwear, jacket, umbrella'
+        : 'rain: none';
+      filtersApplied.push(rainCond);
     } else {
-      filtersApplied.push('weather: none → no warmth/rain conditions');
+      filtersApplied.push('weather: none → no rain preference');
     }
     console.log('[prefilter] getPreFilteredCandidates', { userId, dateOpt });
     console.log('[prefilter] filters applied:', filtersApplied);

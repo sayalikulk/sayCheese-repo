@@ -19,7 +19,7 @@ Respond with exactly one JSON object (no markdown, no code fence) with this shap
   "health_insights": [ { "type": "thermal" | "uv" | "rain" | "activity" | "other", "severity": "info" | "warning", "message": "one sentence" } ]
 }
 Rules:
-- Top, bottom, and footwear are mandatory when that slot has at least one candidate. Always pick exactly one item_id per slot from the candidates; use the item_id strings as given. Candidates are ordered with the best option first (e.g. warmest for cold weather when no ideal match existed).
+- CRITICAL: Always include exactly one top, one bottom, and one footwear in outfit when candidates exist for that slot. Never omit top, bottom, or footwear unless that slot has zero candidates. Pick exactly one item_id per slot from the candidates; use the item_id strings as given. Candidates are ordered with the best option first (e.g. warmest for cold weather when no ideal match existed).
 - If a slot has no candidates at all, omit that key from outfit (or use null). Still fill every other slot that has candidates.
 - optional: include 0+ items (e.g. jacket, scarf) only when weather or activity clearly need them.
 - alternatives: 0-3 items, each replaces one slot with another candidate from that slot.
@@ -62,6 +62,14 @@ async function recommendOutfit(opts) {
   } else {
     context += ' No weather data (no location provided).';
   }
+
+  const counts = {
+    top: (candidates.top || []).length,
+    bottom: (candidates.bottom || []).length,
+    footwear: (candidates.footwear || []).length,
+    optional: (candidates.optional || []).length,
+  };
+  console.log('[recommendationLLM] LLM call candidates:', counts);
 
   const anthropic = new Anthropic({ apiKey });
   const response = await anthropic.messages.create({
