@@ -20,8 +20,9 @@
 
 - **Document ID:** `itemId` (e.g. `itm_001`).
 - **Fields:**  
-  `userId`, `name`, `category`, `imageUrl` (Firebase Storage URL), `tags` (warmth, breathability, waterproof, occasion[], color, user_comfort),  
+  `userId`, `name`, `description` (optional), `category`, `imageUrl` (Firebase Storage URL), `tags` (warmth, breathability, waterproof, occasion[], color, user_comfort),  
   `timesWornLast7Days`, `timesWornLast30Days`, `lastWornDate`, `addedAt`.
+- **JSON format:** See [Vision LLM to Firebase JSON](vision-llm-to-firebase-json.md).
 - **Composite index:** `userId` + `category` (and optionally `occasion`) for filtered list.
 
 ### `wear_logs`
