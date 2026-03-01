@@ -11,12 +11,16 @@ export async function getAirQuality(lat, lon) {
     const res = await fetch(url);
     const data = await res.json();
 
-    const first = (arr) => (Array.isArray(arr) && arr.length > 0 ? arr[0] : null);
+    const hourlyTime = Array.isArray(data?.hourly?.time) ? data.hourly.time : [];
+    const currentHour = new Date().toISOString().slice(0, 13);
+    let idx = hourlyTime.findIndex((t) => String(t).slice(0, 13) === currentHour);
+    if (idx < 0) idx = 0;
+    const pick = (arr) => (Array.isArray(arr) && arr.length > idx ? arr[idx] : null);
     return {
-      us_aqi: first(data?.hourly?.us_aqi),
-      pollen_grass: first(data?.hourly?.pollen_grass),
-      pollen_tree: first(data?.hourly?.pollen_tree),
-      pollen_weed: first(data?.hourly?.pollen_weed),
+      us_aqi: pick(data?.hourly?.us_aqi),
+      pollen_grass: pick(data?.hourly?.pollen_grass),
+      pollen_tree: pick(data?.hourly?.pollen_tree),
+      pollen_weed: pick(data?.hourly?.pollen_weed),
     };
   } catch {
     return {

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { getProfile } from "../services/user";
 import { getWardrobe } from "../services/wardrobe";
-import { getWeather, getUserLocation, reverseGeocode } from "../services/weather";
+import { getWeather, getAirQuality, getUserLocation, reverseGeocode } from "../services/weather";
 import { isLoggedIn, logout } from "../services/auth";
 
 const AppContext = createContext();
@@ -56,11 +56,15 @@ export function AppProvider({ children }) {
       setLocation(loc);
       const fallbackLat = loc.lat;
       const fallbackLon = loc.lon;
-      const [weatherData, name] = await Promise.all([
+      const [weatherData, environmental, name] = await Promise.all([
         getWeather(fallbackLat, fallbackLon),
+        getAirQuality(fallbackLat, fallbackLon),
         reverseGeocode(fallbackLat, fallbackLon),
       ]);
-      setWeather(weatherData);
+      setWeather({
+        ...weatherData,
+        environmental,
+      });
       setLocationName(name);
     } catch (_err) {
       // // 🔥 VERY HOT
@@ -87,11 +91,15 @@ export function AppProvider({ children }) {
       // // 🌫️ FOGGY
       // const [fallbackLat, fallbackLon] = [37.7749, -122.4194];
 
-      const [data, name] = await Promise.all([
+      const [data, environmental, name] = await Promise.all([
         getWeather(fallbackLat, fallbackLon),
+        getAirQuality(fallbackLat, fallbackLon),
         reverseGeocode(fallbackLat, fallbackLon),
       ]);
-      setWeather(data);
+      setWeather({
+        ...data,
+        environmental,
+      });
       setLocationName(name);
       setLocation({ lat: fallbackLat, lon: fallbackLon });
     }
