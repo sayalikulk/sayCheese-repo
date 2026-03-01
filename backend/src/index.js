@@ -2,7 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const { initializeFirebase } = require('./config/firebase');
 const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/user');
 const wardrobeRoutes = require('./routes/wardrobe');
+const wearLogRoutes = require('./routes/wearLog');
+const insightsRoutes = require('./routes/insights');
 const recommendationsRoutes = require('./routes/recommendations');
 
 initializeFirebase();
@@ -13,10 +16,34 @@ const API_BASE = process.env.API_BASE_URL || '/api/v1';
 
 app.use(express.json());
 
+// Basic CORS for local frontend integration
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '';
+  const isDevOrigin =
+    /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(origin) ||
+    /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
+    /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin) ||
+    /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+(:\d+)?$/.test(origin);
+
+  if (isDevOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).send();
+  }
+  return next();
+});
+
 app.get('/health', (_, res) => res.json({ ok: true }));
 
 app.use(`${API_BASE}/auth`, authRoutes);
+app.use(`${API_BASE}/user`, userRoutes);
 app.use(`${API_BASE}/wardrobe`, wardrobeRoutes);
+app.use(`${API_BASE}/wear-log`, wearLogRoutes);
+app.use(`${API_BASE}/insights`, insightsRoutes);
 app.use(`${API_BASE}/recommendations`, recommendationsRoutes);
 
 app.use((err, req, res, next) => {
@@ -25,7 +52,7 @@ app.use((err, req, res, next) => {
       error: { code: 'VALIDATION_ERROR', message: 'Image must be 10MB or less', status: 400 },
     });
   }
-  if (err.message && err.message.includes('Only JPEG')) {
+  if (err.message && err.message.includes('images allowed')) {
     return res.status(400).json({
       error: { code: 'VALIDATION_ERROR', message: err.message, status: 400 },
     });

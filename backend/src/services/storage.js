@@ -14,7 +14,9 @@ const SCAN_PATH_PREFIX = 'scans';
 async function uploadScanImage(userId, scanId, buffer, mimeType) {
   const admin = getAdmin();
   const bucket = admin.storage().bucket();
-  const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+  let ext = 'jpg';
+  if (mimeType === 'image/png') ext = 'png';
+  if (mimeType === 'image/webp') ext = 'webp';
   const path = `${SCAN_PATH_PREFIX}/${userId}/${scanId}.${ext}`;
   const file = bucket.file(path);
 

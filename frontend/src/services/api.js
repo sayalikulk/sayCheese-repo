@@ -1,6 +1,7 @@
 import { mockRequest, shouldForceMockApi } from "./mockApi";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api/v1";
+const ALLOW_MOCK_FALLBACK = import.meta.env.VITE_ALLOW_MOCK_FALLBACK === "true";
 
 function getToken() {
   return localStorage.getItem("dayadapt_token");
@@ -33,8 +34,11 @@ async function request(path, options = {}) {
       headers,
     });
   } catch (err) {
-    console.warn(`API fetch failed for ${path}. Falling back to mock API.`, err);
-    return await mockRequest(path, options);
+    if (ALLOW_MOCK_FALLBACK) {
+      console.warn(`API fetch failed for ${path}. Falling back to mock API.`, err);
+      return await mockRequest(path, options);
+    }
+    throw err;
   }
 
   // Handle no content responses (e.g. DELETE 204)

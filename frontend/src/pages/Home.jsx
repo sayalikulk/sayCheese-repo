@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { getWeatherDescription, locationDate } from "../services/weather";
@@ -24,6 +24,8 @@ const OCCASION_LABELS = {
 };
 
 const SELECTED_OUTFIT_KEY = "dayadapt_selected_outfit_v1";
+const RECOMMENDATION_CACHE_KEY = "dayadapt_recommendation_cache_v1";
+const HOME_STATE_KEY = "dayadapt_home_state_v1";
 
 export default function Home() {
   const { user, weather, wardrobe, location, locationName } = useApp();
@@ -32,6 +34,7 @@ export default function Home() {
   const [searchParams] = useSearchParams();
   const [occasion, setOccasion] = useState("casual");
   const [mood, setMood] = useState("relaxed");
+  const [homeStateHydrated, setHomeStateHydrated] = useState(false);
   const [recommendation, setRecommendation] = useState(null);
   const [selectedOutfit, setSelectedOutfit] = useState({
     top: null,
@@ -49,6 +52,43 @@ export default function Home() {
   const [feedback, setFeedback] = useState(null);
   const [activeTab, setActiveTab] = useState("outfit");
   const [wearLogged, setWearLogged] = useState(false);
+  const todayDate = locationDate(weather?.current?.time, weather?.timezone);
+
+  const wardrobeSignature = useMemo(() => {
+    if (!Array.isArray(wardrobe) || wardrobe.length === 0) return "empty";
+    return wardrobe
+      .map((item) => {
+        const id = item?.item_id || item?.id || "";
+        const tags = item?.tags || {};
+        return JSON.stringify({
+          id,
+          name: item?.name || "",
+          category: item?.category || "",
+          warmth: tags?.warmth ?? null,
+          breathability: tags?.breathability ?? null,
+          waterproof: tags?.waterproof ?? null,
+          occasion: Array.isArray(tags?.occasion) ? [...tags.occasion].sort() : [],
+          color: tags?.color ?? "",
+          user_comfort: tags?.user_comfort ?? null,
+          last_worn_date: item?.last_worn_date || null,
+          times_worn_last_30_days: item?.times_worn_last_30_days ?? null,
+        });
+      })
+      .sort()
+      .join("|");
+  }, [wardrobe]);
+
+  const recommendationCacheKey = useMemo(
+    () =>
+      JSON.stringify({
+        user_id: user?.user_id || user?.id || "anonymous",
+        date: todayDate,
+        occasion,
+        mood,
+        wardrobe_signature: wardrobeSignature,
+      }),
+    [user?.user_id, user?.id, todayDate, occasion, mood, wardrobeSignature]
+  );
 
   const text = isDark ? "text-white" : "text-gray-900";
   const textMuted = isDark ? "text-white/60" : "text-gray-500";
@@ -61,8 +101,42 @@ export default function Home() {
   const tabInactive = isDark ? "bg-white/10 text-white" : "bg-black/10 text-gray-800";
 
   useEffect(() => {
+    const raw = localStorage.getItem(HOME_STATE_KEY);
+    if (!raw) {
+      setHomeStateHydrated(true);
+      return;
+    }
+
+    try {
+      const saved = JSON.parse(raw);
+      if (saved?.occasion && OCCASIONS.includes(saved.occasion)) {
+        setOccasion(saved.occasion);
+      }
+      if (saved?.mood && MOODS.some((m) => m.value === saved.mood)) {
+        setMood(saved.mood);
+      }
+    } catch {
+      // ignore malformed local data
+    } finally {
+      setHomeStateHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!homeStateHydrated) return;
+    localStorage.setItem(
+      HOME_STATE_KEY,
+      JSON.stringify({
+        occasion,
+        mood,
+      })
+    );
+  }, [occasion, mood, homeStateHydrated]);
+
+  useEffect(() => {
+    if (!homeStateHydrated) return;
     if (weather && user) fetchRecommendation();
-  }, [weather, occasion, mood]);
+  }, [weather, user, recommendationCacheKey, homeStateHydrated]);
 
   useEffect(() => {
     const raw = localStorage.getItem(SELECTED_OUTFIT_KEY);
@@ -155,6 +229,19 @@ export default function Home() {
   }, [selectedOutfit, clearedSlots, occasion, mood, selectedOutfitHydrated]);
 
   async function fetchRecommendation() {
+    const cachedRaw = localStorage.getItem(RECOMMENDATION_CACHE_KEY);
+    if (cachedRaw) {
+      try {
+        const cached = JSON.parse(cachedRaw);
+        if (cached?.key === recommendationCacheKey && cached?.recommendation) {
+          setRecommendation(cached.recommendation);
+          return;
+        }
+      } catch {
+        // ignore malformed cache
+      }
+    }
+
     setLoading(true);
     setFeedback(null);
     setWearLogged(false);
@@ -169,6 +256,14 @@ export default function Home() {
         timezone: weather?.timezone,
       });
       setRecommendation(rec);
+      localStorage.setItem(
+        RECOMMENDATION_CACHE_KEY,
+        JSON.stringify({
+          key: recommendationCacheKey,
+          recommendation: rec,
+          savedAt: new Date().toISOString(),
+        })
+      );
     } catch (err) {
       console.error(err);
     } finally {

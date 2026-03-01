@@ -47,6 +47,11 @@ const ACTIVITY_OCCASION_MAP = {
 
 const DEFAULT_LIMIT_PER_SLOT = 25;
 const DEFAULT_EXCLUDE_LAST_N_DAYS = 2;
+const SLOT_CATEGORY_ALIASES = {
+  top: ['top', 'tops', 'shirt', 'tshirt', 'tee'],
+  bottom: ['bottom', 'bottoms', 'pant', 'pants', 'jean', 'jeans', 'trouser', 'trousers'],
+  footwear: ['footwear', 'shoe', 'shoes', 'sneaker', 'sneakers', 'boot', 'boots'],
+};
 
 /**
  * Get allowed occasion tags for an activity (for DB pre-filter).
@@ -234,12 +239,12 @@ function filterByRain(docs, category, weather) {
  */
 async function getSlotCandidates(userId, category, opts) {
   const { occasionFilter, cutoffDate, limitPerSlot, weather } = opts;
-  const ref = db()
-    .collection(WARDROBE_ITEMS)
-    .where('userId', '==', userId)
-    .where('category', '==', category);
-  const snap = await ref.get();
-  const docs = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+  let docs = await fetchDocsByCategory(userId, category);
+
+  // Backward compatibility for older or inconsistent category labels.
+  if (docs.length === 0) {
+    docs = await fetchDocsByAliases(userId, category);
+  }
 
   if (DEBUG) console.log(`[prefilter] slot=${category} DB query: userId + category=${category} → ${docs.length} docs`);
 
@@ -286,6 +291,38 @@ async function getSlotCandidates(userId, category, opts) {
       `[prefilter] slot=${category} recency: cutoff=${cutoffDate}, limit=${limitPerSlot} → ${beforeRecency} → ${withRecency.length}`
     );
   return mapDocsToApiItems(withRecency, category);
+}
+
+async function fetchDocsByCategory(userId, category) {
+  const ref = db()
+    .collection(WARDROBE_ITEMS)
+    .where('userId', '==', userId)
+    .where('category', '==', category);
+  const snap = await ref.get();
+  return snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+}
+
+async function fetchDocsByAliases(userId, slotCategory) {
+  const aliases = SLOT_CATEGORY_ALIASES[slotCategory] || [slotCategory];
+  const normalizedAliases = new Set(aliases.map((v) => String(v).toLowerCase()));
+  const ref = db().collection(WARDROBE_ITEMS).where('userId', '==', userId);
+  const snap = await ref.get();
+
+  const out = [];
+  for (const d of snap.docs) {
+    const data = d.data() || {};
+    const raw = data.category;
+    const normalized = String(raw || '').trim().toLowerCase();
+    if (normalizedAliases.has(normalized)) {
+      out.push({ id: d.id, data });
+    }
+  }
+
+  if (DEBUG && out.length > 0) {
+    console.log(`[prefilter] slot=${slotCategory} alias fallback matched ${out.length} docs`);
+  }
+
+  return out;
 }
 
 /**
