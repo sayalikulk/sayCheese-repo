@@ -16,19 +16,29 @@ const API_BASE = process.env.API_BASE_URL || '/api/v1';
 
 app.use(express.json());
 
-// Basic CORS for local frontend integration
+// CORS: allow dev origins + Cloud Run + CORS_ORIGINS env
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
+const isAllowedOrigin = (origin) => {
+  if (!origin) return false;
+  // Dev / local
+  if (/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+(:\d+)?$/.test(origin)) return true;
+  // Cloud Run domains (e.g. service-123.us-central1.run.app or service-123-uc.a.run.app)
+  if (/^https:\/\/[^/]+\.run\.app$/.test(origin)) return true;
+  if (/^https:\/\/[^/]+\.a\.run\.app$/.test(origin)) return true;
+  // Explicit list from env
+  if (CORS_ORIGINS.includes(origin)) return true;
+  return false;
+};
+
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
-  const isDevOrigin =
-    /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(origin) ||
-    /^https?:\/\/10\.\d+\.\d+\.\d+(:\d+)?$/.test(origin) ||
-    /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin) ||
-    /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+(:\d+)?$/.test(origin);
-
-  if (isDevOrigin) {
+  if (isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
   }
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
